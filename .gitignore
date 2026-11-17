@@ -1,0 +1,13 @@
+# Ignorar todas las carpetas de certificados y documentos Word (datos locales privados)
+CERTIFICADOS*/
+*.doc
+*.docx
+*.tmp
+~$*
+INFORME-*.md
+
+# Ignorar configuracion local, inventarios y registros CSV
+_herramientas/*.csv
+_herramientas/ruta-certificados.txt
+_herramientas/archivo/
+Generador-Certificados-App.zip
