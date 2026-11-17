@@ -126,11 +126,22 @@ if ($dup) { Write-Host ("ABORTADO: folios duplicados en el inventario: {0}" -f (
 $next = ($nums | Measure-Object -Maximum).Maximum + 1
 Write-Host "Folio maximo $Origen = $($next - 1); la secuencia de $Destino empieza en $next"
 
+function Get-TargetDir([string]$srcFile, [int]$destYear) {
+    $srcDir = Split-Path $srcFile -Parent
+    $dirName = Split-Path $srcDir -Leaf
+    if ($dirName -match '^\d{4}$' -and $dirName -ne "$destYear") {
+        $parent = Split-Path $srcDir -Parent
+        return (Join-Path $parent "$destYear")
+    }
+    return $srcDir
+}
+
 $plan = @()
 foreach ($row in $inventory) {
     $newName = [regex]::Replace($row.FileName, $Origen, $Destino, 'IgnoreCase')
     $newName = $newName.Replace("$OrigenAnio", "$DestinoAnio")
-    $plan += [pscustomobject]@{ Row = $row; NewName = $newName; NewFolio = (Format-Folio $next); OldFolio = $row.FolioRaw }
+    $dstDir = Get-TargetDir $row.Path $DestinoAnio
+    $plan += [pscustomobject]@{ Row = $row; NewName = $newName; DestDir = $dstDir; NewFolio = (Format-Folio $next); OldFolio = $row.FolioRaw }
     $next++
 }
 $targets = @($plan)
@@ -140,8 +151,8 @@ if ($MaxFiles -gt 0) { $targets = @($targets | Select-Object -First $MaxFiles) }
 if ($DryRun) {
     Write-Host '--- DRY RUN: no se crea nada ---'
     foreach ($t in $targets) {
-        $dst = Join-Path (Split-Path $t.Row.Path -Parent) $t.NewName
-        $estado = if (-not (Test-Path -LiteralPath $t.Row.Path)) { 'FALTA-FUENTE' } elseif ($t.NewName -ceq $t.Row.FileName) { 'NOMBRE-IGUAL' } elseif (Test-Path -LiteralPath $dst) { 'YA-EXISTE' } else { 'CREARIA' }
+        $dst = Join-Path $t.DestDir $t.NewName
+        $estado = if (-not (Test-Path -LiteralPath $t.Row.Path)) { 'FALTA-FUENTE' } elseif ($t.NewName -ceq $t.Row.FileName -and $t.DestDir -eq (Split-Path $t.Row.Path -Parent)) { 'NOMBRE-IGUAL' } elseif (Test-Path -LiteralPath $dst) { 'YA-EXISTE' } else { 'CREARIA' }
         Write-Host ("{0,-13} {1} -> {2}  folio {3} -> {4}" -f $estado, $t.Row.FileName, $t.NewName, $t.OldFolio, $t.NewFolio)
     }
     exit 0
@@ -158,12 +169,13 @@ try {
         $i++
         $row = $t.Row
         $src = $row.Path
-        $dst = Join-Path (Split-Path $src -Parent) $t.NewName
+        if (-not (Test-Path -LiteralPath $t.DestDir)) { New-Item -ItemType Directory -Path $t.DestDir -Force | Out-Null }
+        $dst = Join-Path $t.DestDir $t.NewName
         $status = ''; $notes = ''
         Write-Host ("[{0}/{1}] {2}" -f $i, $targets.Count, $row.Rel)
 
         if (-not (Test-Path -LiteralPath $src)) { $status = 'SKIP-missing-source' }
-        elseif ($t.NewName -ceq $row.FileName) { $status = 'SKIP-name-sin-mes' }
+        elseif ($t.NewName -ceq $row.FileName -and $t.DestDir -eq (Split-Path $src -Parent)) { $status = 'SKIP-name-sin-mes' }
         elseif (Test-Path -LiteralPath $dst) { $status = 'SKIP-ya-existe' }
         else {
             $hashAntes = (Get-FileHash -LiteralPath $src -Algorithm SHA256).Hash
