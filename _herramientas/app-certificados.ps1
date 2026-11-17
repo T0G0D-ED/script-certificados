@@ -176,6 +176,243 @@ function Confirm-DoubleVerification([string]$mesDest, [int]$anioDest, [int]$cant
     return ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK)
 }
 
+function Get-NextCompanyNumber() {
+    $dirs = @(Get-ChildItem -LiteralPath $raiz -Directory)
+    $nums = @($dirs | ForEach-Object { if ($_.Name -match '^(\d+)') { [int]$Matches[1] } })
+    if ($nums.Count -eq 0) { return 1 }
+    return (($nums | Measure-Object -Maximum).Maximum + 1)
+}
+
+function Show-NewCompanyOrBranchDialog([string]$mesOrig, [int]$anioOrig) {
+    $invPath = Join-Path $tools ("inventario-{0}-{1}.csv" -f $mesOrig.ToLowerInvariant(), $anioOrig)
+    $maxFolio = 37800
+    if (Test-Path -LiteralPath $invPath) {
+        $rws = @(Import-Csv -LiteralPath $invPath)
+        $ns = @($rws | Where-Object { $_.FolioNum -match '^\d+$' } | ForEach-Object { [int]$_.FolioNum })
+        if ($ns.Count -gt 0) { $maxFolio = ($ns | Measure-Object -Maximum).Maximum }
+    }
+    $suggestedFolio = Format-Folio ($maxFolio + 1)
+    $nextNum = Get-NextCompanyNumber
+
+    $dlg = New-Object System.Windows.Forms.Form
+    $dlg.Text = 'Agregar Nueva Empresa o Sucursal'
+    $dlg.Size = New-Object System.Drawing.Size(750, 680)
+    $dlg.MinimumSize = New-Object System.Drawing.Size(720, 500)
+    $dlg.StartPosition = 'CenterParent'
+    $dlg.FormBorderStyle = 'Sizable'
+    $dlg.MaximizeBox = $true
+    $dlg.MinimizeBox = $false
+    $dlg.AutoScroll = $true
+    $dlg.BackColor = [System.Drawing.Color]::FromArgb(248, 250, 252)
+    $dlg.Font = New-Object System.Drawing.Font('Segoe UI', 12)
+
+    $lblHeader = New-Object System.Windows.Forms.Label
+    $lblHeader.Text = "Crear carpeta y primer certificado base en $mesOrig $anioOrig"
+    $lblHeader.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
+    $lblHeader.ForeColor = [System.Drawing.Color]::FromArgb(20, 60, 140)
+    $lblHeader.Location = New-Object System.Drawing.Point(22, 16)
+    $lblHeader.Size = New-Object System.Drawing.Size(660, 32)
+    $dlg.Controls.Add($lblHeader)
+
+    $rbEmpresa = New-Object System.Windows.Forms.RadioButton
+    $rbEmpresa.Text = 'Crear una EMPRESA NUEVA'
+    $rbEmpresa.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+    $rbEmpresa.Location = New-Object System.Drawing.Point(25, 58)
+    $rbEmpresa.Size = New-Object System.Drawing.Size(300, 30)
+    $rbEmpresa.Checked = $true
+    $dlg.Controls.Add($rbEmpresa)
+
+    $rbSucursal = New-Object System.Windows.Forms.RadioButton
+    $rbSucursal.Text = 'Agregar SUCURSAL a empresa existente'
+    $rbSucursal.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+    $rbSucursal.Location = New-Object System.Drawing.Point(335, 58)
+    $rbSucursal.Size = New-Object System.Drawing.Size(355, 30)
+    $dlg.Controls.Add($rbSucursal)
+
+    # Panel Empresa
+    $lblEmp = New-Object System.Windows.Forms.Label
+    $lblEmp.Text = "Nombre de carpeta de la nueva empresa (ej: $nextNum MI EMPRESA):"
+    $lblEmp.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $lblEmp.Location = New-Object System.Drawing.Point(22, 102)
+    $lblEmp.Size = New-Object System.Drawing.Size(650, 26)
+    $dlg.Controls.Add($lblEmp)
+
+    $txtNuevaEmp = New-Object System.Windows.Forms.TextBox
+    $txtNuevaEmp.Text = "$nextNum "
+    $txtNuevaEmp.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+    $txtNuevaEmp.Location = New-Object System.Drawing.Point(22, 130)
+    $txtNuevaEmp.Size = New-Object System.Drawing.Size(650, 34)
+    $dlg.Controls.Add($txtNuevaEmp)
+
+    $cmbEmpExistente = New-Object System.Windows.Forms.ComboBox
+    $cmbEmpExistente.DropDownStyle = 'DropDownList'
+    $cmbEmpExistente.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+    $cmbEmpExistente.Location = New-Object System.Drawing.Point(22, 130)
+    $cmbEmpExistente.Size = New-Object System.Drawing.Size(650, 34)
+    $cmbEmpExistente.Visible = $false
+    Get-ChildItem -LiteralPath $raiz -Directory | Sort-Object Name | ForEach-Object { [void]$cmbEmpExistente.Items.Add($_.Name) }
+    if ($cmbEmpExistente.Items.Count -gt 0) { $cmbEmpExistente.SelectedIndex = 0 }
+    $dlg.Controls.Add($cmbEmpExistente)
+
+    # Sucursal
+    $lblSuc = New-Object System.Windows.Forms.Label
+    $lblSuc.Text = 'Nombre de Sucursal (opcional si la empresa no tiene sucursales):'
+    $lblSuc.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $lblSuc.Location = New-Object System.Drawing.Point(22, 178)
+    $lblSuc.Size = New-Object System.Drawing.Size(650, 26)
+    $dlg.Controls.Add($lblSuc)
+
+    $txtSucursal = New-Object System.Windows.Forms.TextBox
+    $txtSucursal.Font = New-Object System.Drawing.Font('Segoe UI', 13)
+    $txtSucursal.Location = New-Object System.Drawing.Point(22, 206)
+    $txtSucursal.Size = New-Object System.Drawing.Size(650, 34)
+    $dlg.Controls.Add($txtSucursal)
+
+    # Datos dentro del certificado Word
+    $lblInm = New-Object System.Windows.Forms.Label
+    $lblInm.Text = 'Inmueble Tratado (aparece dentro del certificado):'
+    $lblInm.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $lblInm.Location = New-Object System.Drawing.Point(22, 254)
+    $lblInm.Size = New-Object System.Drawing.Size(650, 26)
+    $dlg.Controls.Add($lblInm)
+
+    $txtInmueble = New-Object System.Windows.Forms.TextBox
+    $txtInmueble.Font = New-Object System.Drawing.Font('Segoe UI', 13)
+    $txtInmueble.Location = New-Object System.Drawing.Point(22, 282)
+    $txtInmueble.Size = New-Object System.Drawing.Size(650, 34)
+    $dlg.Controls.Add($txtInmueble)
+
+    $lblDir = New-Object System.Windows.Forms.Label
+    $lblDir.Text = 'Direccion:'
+    $lblDir.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $lblDir.Location = New-Object System.Drawing.Point(22, 330)
+    $lblDir.Size = New-Object System.Drawing.Size(410, 26)
+    $dlg.Controls.Add($lblDir)
+
+    $txtDireccion = New-Object System.Windows.Forms.TextBox
+    $txtDireccion.Font = New-Object System.Drawing.Font('Segoe UI', 13)
+    $txtDireccion.Location = New-Object System.Drawing.Point(22, 358)
+    $txtDireccion.Size = New-Object System.Drawing.Size(410, 34)
+    $dlg.Controls.Add($txtDireccion)
+
+    $lblCom = New-Object System.Windows.Forms.Label
+    $lblCom.Text = 'Comuna:'
+    $lblCom.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $lblCom.Location = New-Object System.Drawing.Point(450, 330)
+    $lblCom.Size = New-Object System.Drawing.Size(222, 26)
+    $dlg.Controls.Add($lblCom)
+
+    $txtComuna = New-Object System.Windows.Forms.TextBox
+    $txtComuna.Font = New-Object System.Drawing.Font('Segoe UI', 13)
+    $txtComuna.Location = New-Object System.Drawing.Point(450, 358)
+    $txtComuna.Size = New-Object System.Drawing.Size(222, 34)
+    $dlg.Controls.Add($txtComuna)
+
+    # Folio Inicial
+    $lblFolio = New-Object System.Windows.Forms.Label
+    $lblFolio.Text = "Folio para su certificado de $mesOrig $anioOrig (correlativo sugerido):"
+    $lblFolio.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $lblFolio.Location = New-Object System.Drawing.Point(22, 406)
+    $lblFolio.Size = New-Object System.Drawing.Size(650, 28)
+    $dlg.Controls.Add($lblFolio)
+
+    $txtFolio = New-Object System.Windows.Forms.TextBox
+    $txtFolio.Text = $suggestedFolio
+    $txtFolio.Font = New-Object System.Drawing.Font('Segoe UI', 14, [System.Drawing.FontStyle]::Bold)
+    $txtFolio.Location = New-Object System.Drawing.Point(22, 436)
+    $txtFolio.Size = New-Object System.Drawing.Size(240, 36)
+    $dlg.Controls.Add($txtFolio)
+
+    $chkAbrir = New-Object System.Windows.Forms.CheckBox
+    $chkAbrir.Text = 'Abrir el certificado creado en Word al terminar para revisarlo'
+    $chkAbrir.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $chkAbrir.Checked = $true
+    $chkAbrir.Location = New-Object System.Drawing.Point(22, 486)
+    $chkAbrir.Size = New-Object System.Drawing.Size(650, 30)
+    $dlg.Controls.Add($chkAbrir)
+
+    $rbEmpresa.Add_CheckedChanged({
+        if ($rbEmpresa.Checked) {
+            $lblEmp.Text = "Nombre de carpeta de la nueva empresa (ej: $nextNum MI EMPRESA):"
+            $txtNuevaEmp.Visible = $true
+            $cmbEmpExistente.Visible = $false
+            $lblSuc.Text = 'Nombre de Sucursal (opcional si la empresa no tiene sucursales):'
+        } else {
+            $lblEmp.Text = 'Seleccione la Empresa existente:'
+            $txtNuevaEmp.Visible = $false
+            $cmbEmpExistente.Visible = $true
+            $lblSuc.Text = 'Nombre de la nueva Sucursal (obligatorio):'
+        }
+    })
+
+    $btnCrear = New-Object System.Windows.Forms.Button
+    $btnCrear.Text = 'CREAR CARPETA Y CERTIFICADO'
+    $btnCrear.BackColor = [System.Drawing.Color]::FromArgb(25, 135, 60)
+    $btnCrear.ForeColor = [System.Drawing.Color]::White
+    $btnCrear.FlatStyle = 'Flat'
+    $btnCrear.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+    $btnCrear.Location = New-Object System.Drawing.Point(22, 532)
+    $btnCrear.Size = New-Object System.Drawing.Size(360, 52)
+    $dlg.Controls.Add($btnCrear)
+
+    $btnCerrar = New-Object System.Windows.Forms.Button
+    $btnCerrar.Text = 'Cancelar'
+    $btnCerrar.Font = New-Object System.Drawing.Font('Segoe UI', 12)
+    $btnCerrar.Location = New-Object System.Drawing.Point(405, 532)
+    $btnCerrar.Size = New-Object System.Drawing.Size(267, 52)
+    $btnCerrar.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $dlg.Controls.Add($btnCerrar)
+
+    $script:createdResult = $null
+    $btnCrear.Add_Click({
+        $modo = if ($rbEmpresa.Checked) { 'Empresa' } else { 'Sucursal' }
+        $empName = if ($rbEmpresa.Checked) { $txtNuevaEmp.Text.Trim().ToUpperInvariant() } else { [string]$cmbEmpExistente.SelectedItem }
+        $sucName = $txtSucursal.Text.Trim().ToUpperInvariant()
+        if ($modo -eq 'Empresa' -and ($empName -match '^\d+$' -or $empName.Length -lt 3)) {
+            [System.Windows.Forms.MessageBox]::Show('Escriba el nombre de la nueva empresa (por ejemplo: 42 PANADERIA CENTRAL).', 'Falta nombre', 'OK', 'Warning') | Out-Null
+            return
+        }
+        if ($modo -eq 'Sucursal' -and -not $sucName) {
+            [System.Windows.Forms.MessageBox]::Show('Escriba el nombre de la nueva sucursal.', 'Falta sucursal', 'OK', 'Warning') | Out-Null
+            return
+        }
+        if ($txtFolio.Text.Trim() -notmatch '^[0-9\.]+$') {
+            [System.Windows.Forms.MessageBox]::Show('El folio debe ser un numero valido (por ejemplo 37.874).', 'Folio invalido', 'OK', 'Warning') | Out-Null
+            return
+        }
+        $inmText = if ($txtInmueble.Text.Trim()) { $txtInmueble.Text.Trim() } elseif ($sucName) { $sucName } else { ($empName -replace '^\d+[\-\s]*', '').Trim() }
+
+        $dlg.Cursor = [System.Windows.Forms.Cursors]::WaitCursor
+        $btnCrear.Enabled = $false
+        try {
+            $script:createdResult = & (Join-Path $tools 'nueva-empresa-sucursal.ps1') `
+                -Modo $modo `
+                -CarpetaEmpresa $empName `
+                -NombreSucursal $sucName `
+                -Inmueble $inmText `
+                -Direccion $txtDireccion.Text.Trim() `
+                -Comuna $txtComuna.Text.Trim() `
+                -MesBase $mesOrig `
+                -AnioBase $anioOrig `
+                -FolioInicial $txtFolio.Text.Trim() `
+                -Raiz $raiz `
+                -AbrirEnWord:($chkAbrir.Checked)
+            $dlg.DialogResult = [System.Windows.Forms.DialogResult]::OK
+            $dlg.Close()
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show("No se pudo crear: $($_.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null
+        } finally {
+            $dlg.Cursor = [System.Windows.Forms.Cursors]::Default
+            $btnCrear.Enabled = $true
+        }
+    })
+
+    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $script:createdResult
+    }
+    return $null
+}
+
 # ==================== VENTANA PRINCIPAL ====================
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'Generador Mensual de Certificados - Parra & Mauro Ltda.'
@@ -239,30 +476,40 @@ $pnlTop.Controls.Add($lblSummaryInfo)
 # Panel de Botones Grandes
 $btnSimular = New-Object System.Windows.Forms.Button
 $btnSimular.Text = 'PASO 1: Revisar y Simular'
-$btnSimular.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+$btnSimular.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
 $btnSimular.BackColor = [System.Drawing.Color]::FromArgb(30, 100, 200)
 $btnSimular.ForeColor = [System.Drawing.Color]::White
 $btnSimular.FlatStyle = 'Flat'
 $btnSimular.Location = New-Object System.Drawing.Point(16, 178)
-$btnSimular.Size = New-Object System.Drawing.Size(275, 58)
+$btnSimular.Size = New-Object System.Drawing.Size(230, 58)
 $form.Controls.Add($btnSimular)
 
 $btnGenerar = New-Object System.Windows.Forms.Button
 $btnGenerar.Text = 'PASO 2: Crear Certificados'
-$btnGenerar.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+$btnGenerar.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
 $btnGenerar.BackColor = [System.Drawing.Color]::FromArgb(25, 135, 60)
 $btnGenerar.ForeColor = [System.Drawing.Color]::White
 $btnGenerar.FlatStyle = 'Flat'
-$btnGenerar.Location = New-Object System.Drawing.Point(305, 178)
-$btnGenerar.Size = New-Object System.Drawing.Size(295, 58)
+$btnGenerar.Location = New-Object System.Drawing.Point(256, 178)
+$btnGenerar.Size = New-Object System.Drawing.Size(240, 58)
 $form.Controls.Add($btnGenerar)
 
+$btnNuevaEmp = New-Object System.Windows.Forms.Button
+$btnNuevaEmp.Text = '+ Nueva Empresa / Sucursal'
+$btnNuevaEmp.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+$btnNuevaEmp.BackColor = [System.Drawing.Color]::FromArgb(105, 65, 198)
+$btnNuevaEmp.ForeColor = [System.Drawing.Color]::White
+$btnNuevaEmp.FlatStyle = 'Flat'
+$btnNuevaEmp.Location = New-Object System.Drawing.Point(506, 178)
+$btnNuevaEmp.Size = New-Object System.Drawing.Size(220, 58)
+$form.Controls.Add($btnNuevaEmp)
+
 $btnCarpeta = New-Object System.Windows.Forms.Button
-$btnCarpeta.Text = 'Abrir Carpeta Certificados'
-$btnCarpeta.Font = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
+$btnCarpeta.Text = 'Abrir Carpeta'
+$btnCarpeta.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
 $btnCarpeta.BackColor = [System.Drawing.Color]::FromArgb(230, 235, 242)
-$btnCarpeta.Location = New-Object System.Drawing.Point(614, 178)
-$btnCarpeta.Size = New-Object System.Drawing.Size(245, 58)
+$btnCarpeta.Location = New-Object System.Drawing.Point(736, 178)
+$btnCarpeta.Size = New-Object System.Drawing.Size(160, 58)
 $form.Controls.Add($btnCarpeta)
 
 $btnDeshacer = New-Object System.Windows.Forms.Button
@@ -271,8 +518,8 @@ $btnDeshacer.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawi
 $btnDeshacer.BackColor = [System.Drawing.Color]::FromArgb(250, 225, 225)
 $btnDeshacer.ForeColor = [System.Drawing.Color]::FromArgb(160, 20, 20)
 $btnDeshacer.FlatStyle = 'Flat'
-$btnDeshacer.Location = New-Object System.Drawing.Point(873, 178)
-$btnDeshacer.Size = New-Object System.Drawing.Size(213, 58)
+$btnDeshacer.Location = New-Object System.Drawing.Point(906, 178)
+$btnDeshacer.Size = New-Object System.Drawing.Size(180, 58)
 $form.Controls.Add($btnDeshacer)
 
 # Barra de progreso y estado
@@ -501,6 +748,25 @@ $btnGenerar.Add_Click({
 
 $btnCarpeta.Add_Click({
     if (Test-Path -LiteralPath $raiz) { Start-Process explorer.exe -ArgumentList "`"$raiz`"" }
+})
+
+$btnNuevaEmp.Add_Click({
+    $mOrig = [string]$cmbMes.SelectedItem
+    $aOrig = [int]$numAnio.Value
+    $res = Show-NewCompanyOrBranchDialog $mOrig $aOrig
+    if ($res) {
+        Load-SimulationGrid $false
+        $lblStatus.Text = "Agregado: $($res.Rel) con folio $($res.FolioAsignado). Total ahora: $($res.TotalEnInventario) certificados."
+        [System.Windows.Forms.MessageBox]::Show(
+            "¡Empresa / Sucursal creada con exito!`r`n`r`n" +
+            "- Carpeta: $($res.CarpetaCreada)`r`n" +
+            "- Certificado inicial: $($res.ArchivoCreado)`r`n" +
+            "- Folio asignado en $mOrig ${aOrig}: $($res.FolioAsignado)`r`n" +
+            "- Total de certificados en la secuencia: $($res.TotalEnInventario)`r`n`r`n" +
+            "Ya quedo incluida automaticamente para las proximas generaciones mensuales.",
+            'Creado con exito', 'OK', 'Information'
+        ) | Out-Null
+    }
 })
 
 $btnDeshacer.Add_Click({
